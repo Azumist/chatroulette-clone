@@ -1,5 +1,5 @@
 import {createServer} from 'http'; //todo: add certs
-import { WebsocketService } from './services/websocket.service';
+import {WebsocketService} from './services/websocket.service';
 
 const healthCheck = (_req, res) => {
   res.writeHead(200);

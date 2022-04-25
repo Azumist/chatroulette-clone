@@ -10,4 +10,5 @@ export interface Stranger {
   id: string;
   status: StrangerStatus;
   websocket: WebSocket;
+  roomId?: string;
 };
