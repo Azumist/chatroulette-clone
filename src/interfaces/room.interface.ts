@@ -1,6 +1,7 @@
 import {RoomMessages} from "./room-messages.interface";
+import {Stranger} from "./stranger.interface";
 export interface Room {
   id: string;
-  full: boolean;
   messages: RoomMessages[];
+  participants?: Stranger[];
 }

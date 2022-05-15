@@ -9,7 +9,9 @@ import {RoomMessages} from '@server/interfaces/room-messages.interface';
 enum InfoCodes {
   Waiting,
   Found,
-  NotFound
+  NotFound,
+  Disconnected,
+  StrangerLeft
 };
 export class WebsocketService {
   private lobby: Stranger[] = [];
@@ -33,14 +35,16 @@ export class WebsocketService {
       const clientReq = reqData as WsClientRequest;
 
       switch (clientReq.command) {
+        // Stranger has joined a room
         case 'ready':
           this.changeStrangerStatus(clientReq.id, StrangerStatus.Ready);
           this.connectStranger(clientReq.id);
           break;
+        // Stranger has left a room
         case 'disconnect':
-          this.changeStrangerStatus(clientReq.id, StrangerStatus.Disconnected);
-          //todo: check if client is in room and make it empty
+          this.disconnectAndDestroyRoom(clientReq.id);
           break;
+        // Stranger is sending a message while in a room
         case 'message':
 
           break;
@@ -99,12 +103,10 @@ export class WebsocketService {
     });
 
     if (otherStranger) {
-     
-      //todo: create room
       const newRoom: Room = {
         id: Math.random().toString(36).substring(2, 32),
-        full: true,
-        messages: []
+        messages: [],
+        participants: [thisStranger, otherStranger]
       };
       this.rooms.push(newRoom);
 
@@ -129,6 +131,28 @@ export class WebsocketService {
     }
   }
 
+  private disconnectAndDestroyRoom(id: string): void {
+    const stranger = this.lobby.find(stranger => stranger.id === id);
+    const strangersRoom = this.rooms.find(room => room.id === stranger.roomId);
+    const otherStranger = strangersRoom.participants.find(other => other.id !== id);
+
+    this.changeStrangerStatus(stranger.id, StrangerStatus.Disconnected);
+    this.changeStrangerStatus(otherStranger.id, StrangerStatus.Disconnected);
+
+    const disconnectInfo = JSON.stringify({
+      info: 'You\'ve disconnected',
+      code: InfoCodes.Disconnected
+    });
+
+    const abandonedInfo = JSON.stringify({
+      info: 'Stranger left',
+      code: InfoCodes.StrangerLeft
+    });
+
+    stranger.websocket.send(disconnectInfo);
+    otherStranger.websocket.send(abandonedInfo);
+    this.rooms = this.rooms.filter(room => room.id !== strangersRoom.id);
+  }
 }
 
 //todo: add unified request sent to the client with id, errors/infos and commands
