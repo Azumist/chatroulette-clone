@@ -1,4 +1,4 @@
-export interface RoomMessages {
+export interface RoomMessage {
   id: string;
   message: string;
 }

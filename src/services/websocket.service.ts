@@ -4,14 +4,16 @@ import {Server, IncomingMessage} from 'http';
 import {Stranger, StrangerStatus} from '@server/interfaces/stranger.interface';
 import {WsClientRequest} from '@server/interfaces/ws-client-request.interface';
 import {Room} from '@server/interfaces/room.interface';
-import {RoomMessages} from '@server/interfaces/room-messages.interface';
+import {RoomMessage} from '@server/interfaces/room-message.interface';
+import {WsServerResponse} from '@server/interfaces/ws-server-response.interface';
 
-enum InfoCodes {
+enum ResponseCodes {
   Waiting,
   Found,
   NotFound,
   Disconnected,
-  StrangerLeft
+  StrangerLeft,
+  MessagesSent
 };
 export class WebsocketService {
   private lobby: Stranger[] = [];
@@ -35,18 +37,25 @@ export class WebsocketService {
       const clientReq = reqData as WsClientRequest;
 
       switch (clientReq.command) {
-        // Stranger has joined a room
-        case 'ready':
+        case 'ready': // Stranger has joined a room
+          const stranger = this.lobby.find(stranger => stranger.id === clientReq.id);
+
+          if (stranger.status === StrangerStatus.Talking) {
+            return;
+          }
+
           this.changeStrangerStatus(clientReq.id, StrangerStatus.Ready);
           this.connectStranger(clientReq.id);
           break;
-        // Stranger has left a room
-        case 'disconnect':
+        case 'disconnect': // Stranger has left a room
           this.disconnectAndDestroyRoom(clientReq.id);
           break;
-        // Stranger is sending a message while in a room
-        case 'message':
+        case 'message': // Stranger is sending a message while in a room
+          if (!clientReq.message) {
+            return;
+          }
 
+          this.sendMessage(clientReq);
           break;
       }
 
@@ -115,19 +124,21 @@ export class WebsocketService {
       thisStranger.roomId = newRoom.id;
       otherStranger.roomId = newRoom.id;
 
-      const info = JSON.stringify({
+      const response: WsServerResponse = {
         info: 'Stranger found',
-        code: InfoCodes.Found
-      });
+        code: ResponseCodes.Found
+      }
 
-      thisStranger.websocket.send(info);
-      otherStranger.websocket.send(info);
+      thisStranger.websocket.send(JSON.stringify(response));
+      otherStranger.websocket.send(JSON.stringify(response));
     }
     else {
-      thisStranger.websocket.send(JSON.stringify({
+      const response: WsServerResponse = {
         info: 'Looking for stranger',
-        code: InfoCodes.Waiting
-      }));
+        code: ResponseCodes.Waiting
+      };
+
+      thisStranger.websocket.send(JSON.stringify(response));
     }
   }
 
@@ -139,19 +150,44 @@ export class WebsocketService {
     this.changeStrangerStatus(stranger.id, StrangerStatus.Disconnected);
     this.changeStrangerStatus(otherStranger.id, StrangerStatus.Disconnected);
 
-    const disconnectInfo = JSON.stringify({
+    const disconnectedResponse: WsServerResponse = {
       info: 'You\'ve disconnected',
-      code: InfoCodes.Disconnected
-    });
+      code: ResponseCodes.Disconnected
+    };
 
-    const abandonedInfo = JSON.stringify({
+    const abandonedResponse: WsServerResponse = {
       info: 'Stranger left',
-      code: InfoCodes.StrangerLeft
-    });
+      code: ResponseCodes.StrangerLeft
+    };
 
-    stranger.websocket.send(disconnectInfo);
-    otherStranger.websocket.send(abandonedInfo);
+    stranger.websocket.send(JSON.stringify(disconnectedResponse));
+    otherStranger.websocket.send(JSON.stringify(abandonedResponse));
     this.rooms = this.rooms.filter(room => room.id !== strangersRoom.id);
+  }
+
+  private sendMessage(clientReq: WsClientRequest): void {
+    const stranger = this.lobby.find(stranger => stranger.id === clientReq.id);
+
+    if (stranger.status !== StrangerStatus.Talking) {
+      return;
+    }
+
+    const room = this.rooms.find(room => room.id === stranger.roomId);
+    const newMessage: RoomMessage = {
+      id: stranger.id,
+      message: clientReq.message
+    };
+
+    room.messages.push(newMessage);
+
+    room.participants.forEach(participant => {
+      const messages: WsServerResponse = {
+        code: ResponseCodes.MessagesSent,
+        messages: room.messages
+      };
+
+      participant.websocket.send(JSON.stringify(messages));
+    });
   }
 }
 
