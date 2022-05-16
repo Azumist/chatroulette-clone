@@ -36,25 +36,15 @@ export class WebsocketService {
       const reqData = JSON.parse((data as unknown) as string);
       const clientReq = reqData as WsClientRequest;
 
+      // todo: add authentication token
       switch (clientReq.command) {
         case 'ready': // Stranger has joined a room
-          const stranger = this.lobby.find(stranger => stranger.id === clientReq.id);
-
-          if (stranger.status === StrangerStatus.Talking) {
-            return;
-          }
-
-          this.changeStrangerStatus(clientReq.id, StrangerStatus.Ready);
-          this.connectStranger(clientReq.id);
+          this.connectStranger(clientReq);
           break;
         case 'disconnect': // Stranger has left a room
-          this.disconnectAndDestroyRoom(clientReq.id);
+          this.disconnectAndDestroyRoom(clientReq);
           break;
         case 'message': // Stranger is sending a message while in a room
-          if (!clientReq.message) {
-            return;
-          }
-
           this.sendMessage(clientReq);
           break;
       }
@@ -90,19 +80,18 @@ export class WebsocketService {
     this.lobby.splice(toRemove, 1);
   }
 
-  private changeStrangerStatus(id: string, status: StrangerStatus): void {
-    const stranger = this.lobby.find(stranger => stranger.id === id);
-    if (stranger) {
-      stranger.status = status;
-    }
-  }
-
-  private connectStranger(id: string): void {
-    let thisStranger: Stranger = this.lobby.find(stranger => stranger.id === id);
+  private connectStranger(clientReq: WsClientRequest): void {
+    let thisStranger: Stranger = this.lobby.find(stranger => stranger.id === clientReq.id);
     let otherStranger: Stranger;
 
+    if (thisStranger.status === StrangerStatus.Talking) {
+      return;
+    }
+
+    thisStranger.status = StrangerStatus.Ready;
+
     this.lobby.some(stranger => {
-      if (stranger.status === StrangerStatus.Ready && stranger.id !== id) {
+      if (stranger.status === StrangerStatus.Ready && stranger.id !== clientReq.id) {
         if (otherStranger) {
           return;
         }
@@ -142,13 +131,13 @@ export class WebsocketService {
     }
   }
 
-  private disconnectAndDestroyRoom(id: string): void {
-    const stranger = this.lobby.find(stranger => stranger.id === id);
+  private disconnectAndDestroyRoom(clientReq: WsClientRequest): void {
+    const stranger = this.lobby.find(stranger => stranger.id === clientReq.id);
     const strangersRoom = this.rooms.find(room => room.id === stranger.roomId);
-    const otherStranger = strangersRoom.participants.find(other => other.id !== id);
+    const otherStranger = strangersRoom.participants.find(other => other.id !== clientReq.id);
 
-    this.changeStrangerStatus(stranger.id, StrangerStatus.Disconnected);
-    this.changeStrangerStatus(otherStranger.id, StrangerStatus.Disconnected);
+    stranger.status = StrangerStatus.Disconnected;
+    otherStranger.status = StrangerStatus.Disconnected;
 
     const disconnectedResponse: WsServerResponse = {
       info: 'You\'ve disconnected',
@@ -166,6 +155,10 @@ export class WebsocketService {
   }
 
   private sendMessage(clientReq: WsClientRequest): void {
+    if (!clientReq.message) {
+      return;
+    }
+
     const stranger = this.lobby.find(stranger => stranger.id === clientReq.id);
 
     if (stranger.status !== StrangerStatus.Talking) {
@@ -190,5 +183,3 @@ export class WebsocketService {
     });
   }
 }
-
-//todo: add unified request sent to the client with id, errors/infos and commands
